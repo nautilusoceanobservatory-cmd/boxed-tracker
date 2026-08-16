@@ -95,6 +95,7 @@ h1 span{color:var(--gold);}
 .chip .dup-flag{position:absolute; top:1px; left:4px; font-size:12px; color:var(--coral); font-weight:700;}
 .chip .count{display:block; font-size:9px; color:var(--faint); margin-top:2px;}
 .chip .pick-flag{position:absolute; bottom:2px; right:4px; font-size:8px; color:var(--gold); letter-spacing:.05em; font-weight:700;}
+.chip .type-flag{position:absolute; bottom:2px; left:4px; font-size:8px; color:var(--faint); letter-spacing:.05em; font-weight:700;}
 .chip.hit .digits{color:var(--text);}
 .chip.hit.quick-only{background-image:linear-gradient(180deg,var(--gold-dim),transparent 70%);}
 .chip.hit.state-only{background-image:linear-gradient(180deg,#3aa0d633,transparent 70%);}
@@ -216,12 +217,24 @@ footer{margin-top:10px; text-align:center;}
       <button data-filter="drawn">DRAWN</button>
       <button data-filter="undrawn">NOT DRAWN</button>
     </div>
+    <div class="seg" id="typeSeg">
+      <button data-type="all" class="active">ANY TYPE</button>
+      <button data-type="single">SINGLES</button>
+      <button data-type="double">DOUBLES</button>
+      <button data-type="triple" id="tripleBtn">TRIPLES</button>
+    </div>
+    <div class="seg" id="sortSeg">
+      <button data-sort="asc" class="active">LOW→HIGH</button>
+      <button data-sort="desc">HIGH→LOW</button>
+      <button data-sort="type">BY TYPE</button>
+    </div>
     <input class="search-input" id="searchBox" placeholder="filter digits e.g. 29" inputmode="numeric">
     <div class="legend">
       <span>⚡ Quick Draw</span>
       <span style="color:var(--blue)">✦ State drawing</span>
       <span style="color:var(--coral)">* Hit more than once</span>
       <span style="color:var(--gold)">▢ Your pick</span>
+      <span>S single · D double · T triple</span>
     </div>
   </div>
 
@@ -299,6 +312,16 @@ let draws = [];
 let picks = [];
 let currentLen = 3;
 let currentFilter = 'all';
+let currentType = 'all';
+let sortMode = 'asc';
+function sortKeysBy(keys, mode){
+  if(mode === 'desc') return [...keys].reverse();
+  if(mode === 'type'){
+    const order = { triple: 0, double: 1, single: 2 };
+    return [...keys].sort((a,b) => order[comboType(a)] - order[comboType(b)] || (a < b ? -1 : 1));
+  }
+  return keys; // asc — ALL_KEYS is already generated in ascending order
+}
 let searchTerm = '';
 let attachedShot = null; // {name, dataUrl}
 
@@ -313,6 +336,13 @@ function generateKeys(len){
 }
 const ALL_KEYS = { 2: generateKeys(2), 3: generateKeys(3) }; // 55 and 220 boxed groups — the full universe, nothing else
 const fmtDigits = key => key.split('').join('-');
+function comboType(key){
+  const unique = new Set(key.split('')).size;
+  if(unique === 1) return 'triple';   // e.g. 111 / 11 — only possible outcome for that combo
+  if(unique < key.length) return 'double'; // a repeated digit, e.g. 122 / 22
+  return 'single'; // all digits different, e.g. 123 / 12
+}
+const TYPE_LETTER = { single:'S', double:'D', triple:'T' };
 
 /* ---------- seed data from the Aug 14-15 2026 screenshot (2 Ball / 3 Ball only) ---------- */
 const SEED = [
@@ -408,8 +438,11 @@ function renderNotDrawn(){
   const map = buildMap(currentLen);
   let keys = ALL_KEYS[currentLen].filter(k => !map.has(k));
   if(searchTerm) keys = keys.filter(k => k.includes(searchTerm));
+  if(currentType !== 'all') keys = keys.filter(k => comboType(k) === currentType);
+  keys = sortKeysBy(keys, sortMode);
+
   document.getElementById('ndCountLabel').textContent = `(${keys.length} of ${ALL_KEYS[currentLen].length})`;
-  document.getElementById('ndList').innerHTML = keys.length ? keys.map(k => `<span>${fmtDigits(k)}</span>`).join('') : '<span style="opacity:.6">Every boxed combination in this set has been drawn.</span>';
+  document.getElementById('ndList').innerHTML = keys.length ? keys.map(k => `<span>${fmtDigits(k)} <b style="color:var(--faint)">${TYPE_LETTER[comboType(k)]}</b></span>`).join('') : '<span style="opacity:.6">Every boxed combination in this set has been drawn.</span>';
 }
 
 function renderGrid(){
@@ -420,6 +453,8 @@ function renderGrid(){
   if(searchTerm) keys = keys.filter(k => k.includes(searchTerm));
   if(currentFilter === 'drawn') keys = keys.filter(k => map.has(k));
   if(currentFilter === 'undrawn') keys = keys.filter(k => !map.has(k));
+  if(currentType !== 'all') keys = keys.filter(k => comboType(k) === currentType);
+  keys = sortKeysBy(keys, sortMode);
 
   if(keys.length === 0){ gridEl.innerHTML = `<div class="empty-note">No boxed combinations match this filter.</div>`; return; }
 
@@ -427,13 +462,14 @@ function renderGrid(){
     const hits = map.get(key);
     const isPick = pickSet.has(key);
     const pickFlag = isPick ? '<span class="pick-flag">PICK</span>' : '';
-    if(!hits){ return `<div class="chip${isPick?' is-pick':''}" data-key="${key}"><div class="digits">${fmtDigits(key)}</div>${pickFlag}</div>`; }
+    const typeBadge = `<span class="type-flag">${TYPE_LETTER[comboType(key)]}</span>`;
+    if(!hits){ return `<div class="chip${isPick?' is-pick':''}" data-key="${key}"><div class="digits">${fmtDigits(key)}</div>${typeBadge}${pickFlag}</div>`; }
     const hasQuick = hits.some(h => h.type === 'quick');
     const hasState = hits.some(h => h.type === 'state');
     const cls = hasQuick && hasState ? 'both' : hasQuick ? 'quick-only' : 'state-only';
     const icons = (hasQuick ? '<span style="color:var(--gold)">⚡</span>' : '') + (hasState ? '<span style="color:var(--blue)">✦</span>' : '');
     const dup = hits.length > 1 ? '<span class="dup-flag" title="Drawn boxed more than once">*</span>' : '';
-    return `<div class="chip hit ${cls}${isPick?' is-pick':''}" data-key="${key}">${dup}<div class="icons">${icons}</div><div class="digits">${fmtDigits(key)}</div><span class="count">${hits.length}×</span>${pickFlag}</div>`;
+    return `<div class="chip hit ${cls}${isPick?' is-pick':''}" data-key="${key}">${dup}<div class="icons">${icons}</div><div class="digits">${fmtDigits(key)}</div><span class="count">${hits.length}×</span>${typeBadge}${pickFlag}</div>`;
   }).join('');
 
   gridEl.querySelectorAll('.chip').forEach(chip => chip.addEventListener('click', () => openModal(chip.dataset.key)));
@@ -552,7 +588,24 @@ async function deletePick(id){
 document.getElementById('lengthTabs').addEventListener('click', e => {
   const btn = e.target.closest('.tab'); if(!btn) return;
   document.querySelectorAll('#lengthTabs .tab').forEach(b => b.classList.remove('active'));
-  btn.classList.add('active'); currentLen = Number(btn.dataset.len); render();
+  btn.classList.add('active'); currentLen = Number(btn.dataset.len);
+  const tripleBtn = document.getElementById('tripleBtn');
+  if(currentLen === 2){
+    tripleBtn.style.display = 'none';
+    if(currentType === 'triple'){
+      currentType = 'all';
+      document.querySelectorAll('#typeSeg button').forEach(b => b.classList.remove('active'));
+      document.querySelector('#typeSeg button[data-type="all"]').classList.add('active');
+    }
+  } else {
+    tripleBtn.style.display = 'inline-block';
+  }
+  render();
+});
+document.getElementById('typeSeg').addEventListener('click', e => {
+  const btn = e.target.closest('button'); if(!btn) return;
+  document.querySelectorAll('#typeSeg button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active'); currentType = btn.dataset.type; renderNotDrawn(); renderGrid();
 });
 document.getElementById('filterSeg').addEventListener('click', e => {
   const btn = e.target.closest('button'); if(!btn) return;
@@ -560,6 +613,11 @@ document.getElementById('filterSeg').addEventListener('click', e => {
   btn.classList.add('active'); currentFilter = btn.dataset.filter; renderGrid();
 });
 document.getElementById('searchBox').addEventListener('input', e => { searchTerm = e.target.value.replace(/[^0-9]/g,''); renderNotDrawn(); renderGrid(); });
+document.getElementById('sortSeg').addEventListener('click', e => {
+  const btn = e.target.closest('button'); if(!btn) return;
+  document.querySelectorAll('#sortSeg button').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active'); sortMode = btn.dataset.sort; renderNotDrawn(); renderGrid();
+});
 
 document.getElementById('bulkImportBtn').addEventListener('click', async () => {
   const raw = document.getElementById('bulkArea').value;
