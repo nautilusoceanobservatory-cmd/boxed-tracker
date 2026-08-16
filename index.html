@@ -647,10 +647,6 @@ async function generateFile(){
   URL.revokeObjectURL(url);
 
   if(attachedShot){
-    const a2 = document.createElement('a');
-    a2.href = attachedShot.dataUrl;
-    a2.download = `boxed-tracker-${stamp}-source-${attachedShot.name}`;
-    a2.click();
     attachedShot = null;
     document.getElementById('shotInput').value = '';
     document.getElementById('shotPreview').style.display = 'none';
