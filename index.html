@@ -145,10 +145,29 @@ footer{margin-top:10px; text-align:center;}
 .modal li{display:flex; gap:8px; align-items:center; padding:8px 0; border-bottom:1px solid var(--line); font-size:12.5px;}
 .modal li:last-child{border-bottom:none;}
 .modal .close-btn{margin-top:14px; width:100%;}
+
+.login-overlay{position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center; padding:20px;
+  background:radial-gradient(1200px 600px at 15% -10%, #0E2436 0%, transparent 60%),
+             radial-gradient(900px 500px at 110% 10%, #10202E 0%, transparent 55%), var(--ink);}
+.login-box{width:100%; max-width:320px; background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:26px;}
+.login-box .field{margin-bottom:12px;}
 </style>
 </head>
 <body>
-<div class="wrap">
+<div class="login-overlay" id="loginOverlay">
+  <div class="login-box">
+    <p class="brand-eyebrow">Island Luck &middot; Numbers Board</p>
+    <h1 style="margin-bottom:6px;">BOXED<span>.</span></h1>
+    <p class="brand-sub" style="margin-bottom:18px;">Sign in to view your tracker.</p>
+    <form id="loginForm">
+      <div class="field"><label>Email</label><input type="email" id="loginEmail" required></div>
+      <div class="field"><label>Password</label><input type="password" id="loginPassword" required></div>
+      <button class="btn btn-primary" type="submit" style="width:100%;">Sign in</button>
+      <p class="status-msg" id="loginStatus"></p>
+    </form>
+  </div>
+</div>
+<div class="wrap" id="appRoot" style="display:none;">
   <div id="dbStatus" style="display:none; background:#3a1a1a; border:1px solid #6a2a2a; color:#ffb4a8; font-size:12px; padding:8px 12px; border-radius:8px; margin-bottom:12px; font-family:'IBM Plex Mono',monospace;"></div>
 
 
@@ -180,6 +199,7 @@ footer{margin-top:10px; text-align:center;}
             <button id="shotClear" title="Remove">✕</button>
           </div>
           <button class="btn btn-gold" id="generateBtn">Generate file</button>
+          <button class="btn btn-ghost" id="logoutBtn">Sign out</button>
         </div>
       </div>
     </div>
@@ -265,7 +285,15 @@ footer{margin-top:10px; text-align:center;}
 <script>
 const SUPABASE_URL = 'https://jxhvyifjsjlbtuxcublb.supabase.co';
 const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imp4aHZ5aWZqc2psYnR1eGN1YmxiIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODY4NTc3NjcsImV4cCI6MjEwMjQzMzc2N30.2upU1IOTLWn37Tww_MzJTsOKCC2NrZd8RqC_nretU1M';
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+let sb;
+try{
+  sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+}catch(e){
+  document.addEventListener('DOMContentLoaded', () => {
+    const s = document.getElementById('loginStatus');
+    if(s) s.textContent = 'Could not load the database library — check your connection and reload.';
+  });
+}
 
 let draws = [];
 let picks = [];
@@ -631,8 +659,36 @@ async function generateFile(){
 }
 document.getElementById('generateBtn').addEventListener('click', generateFile);
 
+/* ---------- auth ---------- */
+const loginOverlay = document.getElementById('loginOverlay');
+const appRoot = document.getElementById('appRoot');
+async function checkSession(){
+  if(!sb){ loginOverlay.style.display = 'flex'; appRoot.style.display = 'none'; return; }
+  const { data: { session } } = await sb.auth.getSession();
+  if(session){ loginOverlay.style.display = 'none'; appRoot.style.display = 'block'; loadAll(); }
+  else{ loginOverlay.style.display = 'flex'; appRoot.style.display = 'none'; }
+}
+document.getElementById('loginForm').addEventListener('submit', async e => {
+  e.preventDefault();
+  if(!sb) return;
+  const email = document.getElementById('loginEmail').value.trim();
+  const password = document.getElementById('loginPassword').value;
+  const statusEl = document.getElementById('loginStatus');
+  statusEl.textContent = 'Signing in…';
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+  if(error){ statusEl.textContent = error.message; return; }
+  statusEl.textContent = '';
+  loginOverlay.style.display = 'none';
+  appRoot.style.display = 'block';
+  loadAll();
+});
+document.getElementById('logoutBtn').addEventListener('click', async () => {
+  if(sb) await sb.auth.signOut();
+  location.reload();
+});
+
 /* ---------- init ---------- */
-loadAll();
+checkSession();
 </script>
 </body>
 </html>
