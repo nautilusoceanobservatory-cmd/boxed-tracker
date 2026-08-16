@@ -199,6 +199,7 @@ footer{margin-top:10px; text-align:center;}
             <span id="shotName"></span>
             <button id="shotClear" title="Remove">✕</button>
           </div>
+          <button class="btn btn-ghost" id="refreshBtn" title="Reload the latest data from the database">Refresh</button>
           <button class="btn btn-gold" id="generateBtn">Generate file</button>
           <button class="btn btn-ghost" id="logoutBtn">Sign out</button>
         </div>
@@ -560,6 +561,34 @@ async function loadAll(){
   if(!pickErr) picks = (pickRows || []).map(r => ({ id: r.id, digits: r.digits, note: r.note || '' }));
 
   render();
+  subscribeRealtime();
+}
+
+let realtimeSubscribed = false;
+function subscribeRealtime(){
+  if(realtimeSubscribed) return;
+  realtimeSubscribed = true;
+  sb.channel('draws-live')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'draws' }, payload => {
+      const r = payload.new;
+      if(!draws.find(d => d.id === r.id)){
+        draws.push({ id: r.id, date: r.date, type: r.type, state: r.label || '', digits: r.digits });
+        render();
+      }
+    })
+    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'draws' }, payload => {
+      draws = draws.filter(d => d.id !== payload.old.id); render();
+    })
+    .subscribe();
+  sb.channel('picks-live')
+    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'picks' }, payload => {
+      const r = payload.new;
+      if(!picks.find(p => p.id === r.id)){ picks.push({ id: r.id, digits: r.digits, note: r.note || '' }); render(); }
+    })
+    .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'picks' }, payload => {
+      picks = picks.filter(p => p.id !== payload.old.id); render();
+    })
+    .subscribe();
 }
 async function insertDraws(rows, statusEl){
   const { error } = await sb.from('draws').insert(rows);
@@ -619,6 +648,17 @@ document.getElementById('sortSeg').addEventListener('click', e => {
   btn.classList.add('active'); sortMode = btn.dataset.sort; renderNotDrawn(); renderGrid();
 });
 
+function resetSheetView(){
+  currentFilter = 'all'; currentType = 'all'; sortMode = 'asc'; searchTerm = '';
+  document.getElementById('searchBox').value = '';
+  document.querySelectorAll('#filterSeg button').forEach(b => b.classList.remove('active'));
+  document.querySelector('#filterSeg button[data-filter="all"]').classList.add('active');
+  document.querySelectorAll('#typeSeg button').forEach(b => b.classList.remove('active'));
+  document.querySelector('#typeSeg button[data-type="all"]').classList.add('active');
+  document.querySelectorAll('#sortSeg button').forEach(b => b.classList.remove('active'));
+  document.querySelector('#sortSeg button[data-sort="asc"]').classList.add('active');
+}
+
 document.getElementById('bulkImportBtn').addEventListener('click', async () => {
   const raw = document.getElementById('bulkArea').value;
   const statusEl = document.getElementById('bulkStatus');
@@ -645,6 +685,7 @@ document.getElementById('bulkImportBtn').addEventListener('click', async () => {
   statusEl.textContent = 'Saving…';
   const ok = await insertDraws(rows, statusEl);
   if(ok){
+    resetSheetView();
     render();
     statusEl.textContent = `Imported ${rows.length} result${rows.length!==1?'s':''}${skipped ? `, skipped ${skipped} line(s)` : ''}.`;
     document.getElementById('bulkArea').value = '';
@@ -712,6 +753,7 @@ async function generateFile(){
   }
 }
 document.getElementById('generateBtn').addEventListener('click', generateFile);
+document.getElementById('refreshBtn').addEventListener('click', () => { if(sb) loadAll(); });
 
 /* ---------- auth ---------- */
 const loginOverlay = document.getElementById('loginOverlay');
